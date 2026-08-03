@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "profiledialog.h"
 
+#include "core/managedsshconfig.h"
 #include "core/sshruntime.h"
 
 #include <QCheckBox>
@@ -109,9 +110,26 @@ ProfileDialog::ProfileDialog(QWidget *parent)
     m_secret->setPlaceholderText(tr("Optional; leave blank to keep the saved secret"));
     form->addRow(tr("Password / key passphrase"), m_secret);
 
+    auto *jumpHostsLayout = new QVBoxLayout;
+    jumpHostsLayout->setContentsMargins(0, 0, 0, 0);
+    jumpHostsLayout->setSpacing(6);
     m_jumpHosts = new QLineEdit(frame);
+    m_jumpHosts->setObjectName(QStringLiteral("jumpHostsEdit"));
     m_jumpHosts->setPlaceholderText(tr("edge, bastion.example.com"));
-    form->addRow(tr("Jump hosts"), m_jumpHosts);
+    jumpHostsLayout->addWidget(m_jumpHosts);
+    auto *savedJumpHostRow = new QHBoxLayout;
+    savedJumpHostRow->setContentsMargins(0, 0, 0, 0);
+    m_savedJumpHost = new QComboBox(frame);
+    m_savedJumpHost->setObjectName(QStringLiteral("savedJumpHostPicker"));
+    m_savedJumpHost->addItem(tr("Select a saved connection…"), QString());
+    m_savedJumpHost->setToolTip(tr("Add an existing Waypane connection to the jump chain"));
+    auto *addJumpHost = new QPushButton(tr("Add"), frame);
+    addJumpHost->setObjectName(QStringLiteral("addSavedJumpHostButton"));
+    connect(addJumpHost, &QPushButton::clicked, this, &ProfileDialog::addSelectedJumpHost);
+    savedJumpHostRow->addWidget(m_savedJumpHost, 1);
+    savedJumpHostRow->addWidget(addJumpHost);
+    jumpHostsLayout->addLayout(savedJumpHostRow);
+    form->addRow(tr("Jump hosts"), jumpHostsLayout);
     m_tags = new QLineEdit(frame);
     m_tags->setPlaceholderText(tr("production, database"));
     form->addRow(tr("Tags"), m_tags);
@@ -188,6 +206,25 @@ void ProfileDialog::setProfile(const Waypane::ConnectionProfile &profile)
     m_legacyCompatibility->setChecked(profile.legacyCompatibility);
 }
 
+void ProfileDialog::setAvailableJumpHosts(const QList<Waypane::ConnectionProfile> &profiles)
+{
+    m_savedJumpHost->clear();
+    m_savedJumpHost->addItem(tr("Select a saved connection…"), QString());
+    for (const Waypane::ConnectionProfile &profile : profiles) {
+        if (profile.id == m_id || profile.host.trimmed().isEmpty()) {
+            continue;
+        }
+        const QString alias = Waypane::ManagedSshConfig::aliasFor(profile);
+        const QString user = profile.username.isEmpty() ? QString() : profile.username + QLatin1Char('@');
+        const QString endpoint = user + profile.host + QLatin1Char(':') + QString::number(profile.port);
+        m_savedJumpHost->addItem(tr("%1 — %2").arg(profile.name, endpoint), alias);
+        m_savedJumpHost->setItemData(m_savedJumpHost->count() - 1,
+                                     tr("Use %1 with its saved SSH settings").arg(profile.name),
+                                     Qt::ToolTipRole);
+    }
+    m_savedJumpHost->setEnabled(m_savedJumpHost->count() > 1);
+}
+
 Waypane::ConnectionProfile ProfileDialog::profile() const
 {
     Waypane::ConnectionProfile result;
@@ -257,6 +294,23 @@ void ProfileDialog::chooseIdentityFile()
         const int keyIndex = m_authentication->findData(QStringLiteral("key"));
         m_authentication->setCurrentIndex(keyIndex);
     }
+}
+
+void ProfileDialog::addSelectedJumpHost()
+{
+    const QString alias = m_savedJumpHost->currentData().toString();
+    if (alias.isEmpty()) {
+        return;
+    }
+    QStringList jumpHosts = m_jumpHosts->text().split(QLatin1Char(','), Qt::SkipEmptyParts);
+    for (QString &jumpHost : jumpHosts) {
+        jumpHost = jumpHost.trimmed();
+    }
+    if (!jumpHosts.contains(alias)) {
+        jumpHosts.append(alias);
+        m_jumpHosts->setText(jumpHosts.join(QStringLiteral(", ")));
+    }
+    m_savedJumpHost->setCurrentIndex(0);
 }
 
 void ProfileDialog::generateIdentityFile()

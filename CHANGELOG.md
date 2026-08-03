@@ -5,6 +5,16 @@ All notable changes to Waypane will be documented here. The project follows
 
 ## Unreleased
 
+## 0.1.4 - 2026-08-03
+
+### Added
+
+- Select existing Waypane connections as SSH jump hosts while retaining manual
+  OpenSSH aliases and ordered multi-hop chains.
+- Apply the selected bastion's saved username, port, key, authentication,
+  host-key, legacy-crypto, and nested jump settings from Waypane's isolated
+  profile configuration, including inside Flatpak.
+
 ## 0.1.3 - 2026-08-03
 
 ### Added

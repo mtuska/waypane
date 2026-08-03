@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(Waypane VERSION 0.1.3 LANGUAGES CXX)
+project(Waypane VERSION 0.1.4 LANGUAGES CXX)
 
 configure_file(
     "${CMAKE_SOURCE_DIR}/src/core/version.h.in"

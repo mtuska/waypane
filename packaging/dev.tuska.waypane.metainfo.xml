@@ -15,6 +15,11 @@
   <url type="homepage">https://waypane.tuska.dev</url>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.1.4" type="development" date="2026-08-03">
+      <description>
+        <p>Adds selection of existing Waypane connections as profile-aware SSH jump hosts, including ordered multi-hop chains.</p>
+      </description>
+    </release>
     <release version="0.1.3" type="development" date="2026-08-03">
       <description>
         <p>Adds copy-ready MCP setup helpers for Codex and Claude, project configuration guidance, and the current version in Settings.</p>

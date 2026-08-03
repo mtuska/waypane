@@ -4,6 +4,7 @@
 #include "core/connectionprofile.h"
 
 #include <QDialog>
+#include <QList>
 
 class QCheckBox;
 class QComboBox;
@@ -18,6 +19,7 @@ public:
     explicit ProfileDialog(QWidget *parent = nullptr);
 
     void setProfile(const Waypane::ConnectionProfile &profile);
+    void setAvailableJumpHosts(const QList<Waypane::ConnectionProfile> &profiles);
     [[nodiscard]] Waypane::ConnectionProfile profile() const;
     [[nodiscard]] QString secret() const;
 
@@ -26,6 +28,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
 
 private slots:
+    void addSelectedJumpHost();
     void chooseIdentityFile();
     void generateIdentityFile();
     void validateAndAccept();
@@ -43,6 +46,7 @@ private:
     QLineEdit *m_identityFile = nullptr;
     QLineEdit *m_secret = nullptr;
     QLineEdit *m_jumpHosts = nullptr;
+    QComboBox *m_savedJumpHost = nullptr;
     QLineEdit *m_tags = nullptr;
     QLineEdit *m_localForwards = nullptr;
     QLineEdit *m_remoteForwards = nullptr;

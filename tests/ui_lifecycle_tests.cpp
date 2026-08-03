@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/waypanewindow.h"
+#include "app/profiledialog.h"
 #include "app/settingsdialog.h"
 #include "waypane/version.h"
 
@@ -9,6 +10,7 @@
 #include <QCoreApplication>
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
 #include <QEvent>
 #include <QJsonObject>
 #include <QLabel>
@@ -31,6 +33,7 @@ private slots:
     void terminalExitClosesOwningTab();
     void copiesFlatpakMcpSetupCommands();
     void settingsShowApplicationVersion();
+    void addsSavedConnectionAsJumpHost();
 };
 
 void UiLifecycleTests::init()
@@ -160,6 +163,34 @@ void UiLifecycleTests::settingsShowApplicationVersion()
     auto *version = dialog.findChild<QLabel *>(QStringLiteral("versionLabel"));
     QVERIFY(version);
     QCOMPARE(version->text(), QStringLiteral("Version %1").arg(QStringLiteral(WAYPANE_VERSION)));
+}
+
+void UiLifecycleTests::addsSavedConnectionAsJumpHost()
+{
+    Waypane::ConnectionProfile jumpHost;
+    jumpHost.id = QStringLiteral("jump-host-id");
+    jumpHost.name = QStringLiteral("Production bastion");
+    jumpHost.host = QStringLiteral("bastion.example.test");
+    jumpHost.username = QStringLiteral("operator");
+    jumpHost.port = 2222;
+
+    ProfileDialog dialog;
+    dialog.setAvailableJumpHosts({jumpHost});
+    auto *picker = dialog.findChild<QComboBox *>(QStringLiteral("savedJumpHostPicker"));
+    auto *add = dialog.findChild<QPushButton *>(QStringLiteral("addSavedJumpHostButton"));
+    QVERIFY(picker);
+    QVERIFY(add);
+    QCOMPARE(picker->count(), 2);
+    QVERIFY(picker->itemText(1).contains(QStringLiteral("Production bastion")));
+    QVERIFY(picker->itemText(1).contains(QStringLiteral("operator@bastion.example.test:2222")));
+
+    picker->setCurrentIndex(1);
+    add->click();
+    QCOMPARE(dialog.profile().jumpHosts, QStringList({QStringLiteral("waypane-jump-host-id")}));
+
+    picker->setCurrentIndex(1);
+    add->click();
+    QCOMPARE(dialog.profile().jumpHosts, QStringList({QStringLiteral("waypane-jump-host-id")}));
 }
 
 QTEST_MAIN(UiLifecycleTests)

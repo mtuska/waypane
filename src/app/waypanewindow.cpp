@@ -990,6 +990,17 @@ WaypaneWindow::TerminalSession WaypaneWindow::createTerminal(const QString &titl
 
 bool WaypaneWindow::openSshSession(const Waypane::ConnectionProfile &profile, QSplitter *workspace, bool tunnelsOnly)
 {
+    QString jumpHostConfig;
+    if (usesSavedJumpHost(profile)) {
+        QString error;
+        if (!Waypane::ManagedSshConfig::write(m_connections.profiles(), &error)) {
+            QMessageBox::warning(this,
+                                 tr("Saved jump host unavailable"),
+                                 tr("Waypane could not prepare the selected jump host: %1").arg(error));
+            return false;
+        }
+        jumpHostConfig = Waypane::ManagedSshConfig::defaultPath();
+    }
     if (profile.legacyCompatibility && !Waypane::SshRuntime::isPrivateRuntime()) {
         QMessageBox::warning(this,
                              tr("Private SSH runtime missing"),
@@ -1019,7 +1030,7 @@ bool WaypaneWindow::openSshSession(const Waypane::ConnectionProfile &profile, QS
     if (!session.interface) {
         return false;
     }
-    QStringList arguments = Waypane::SshCommandBuilder::arguments(profile, tunnelsOnly);
+    QStringList arguments = Waypane::SshCommandBuilder::arguments(profile, tunnelsOnly, jumpHostConfig);
     const QString sshExecutable = Waypane::SshRuntime::executable();
     QString program;
     QStringList programArguments;
@@ -1083,6 +1094,7 @@ bool WaypaneWindow::isDarkTheme() const
 void WaypaneWindow::addConnection()
 {
     ProfileDialog dialog(this);
+    dialog.setAvailableJumpHosts(m_connections.profiles());
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -1112,6 +1124,7 @@ void WaypaneWindow::editConnection()
     }
     ProfileDialog dialog(this);
     dialog.setProfile(*selected);
+    dialog.setAvailableJumpHosts(m_connections.profiles());
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
@@ -1469,7 +1482,7 @@ bool WaypaneWindow::ensureManagedSshConfig()
 {
     QString error;
     if (!Waypane::ManagedSshConfig::write(m_connections.profiles(), &error)) {
-        QMessageBox::warning(this, tr("SFTP configuration"), tr("Could not write Waypane's SSH configuration: %1").arg(error));
+        QMessageBox::warning(this, tr("SSH integration"), tr("Could not write Waypane's SSH configuration: %1").arg(error));
         return false;
     }
     if (Waypane::ManagedSshConfig::isIncluded()) {
@@ -1477,25 +1490,25 @@ bool WaypaneWindow::ensureManagedSshConfig()
     }
     if (Waypane::ManagedSshConfig::hasInclude()) {
         if (!Waypane::ManagedSshConfig::installInclude(&error)) {
-            QMessageBox::warning(this, tr("SFTP configuration"), tr("Could not repair Waypane's SSH include: %1").arg(error));
+            QMessageBox::warning(this, tr("SSH integration"), tr("Could not repair Waypane's SSH include: %1").arg(error));
             return false;
         }
         return true;
     }
 
     QMessageBox prompt(QMessageBox::Question,
-                       tr("Enable profile-aware SFTP?"),
-                       tr("To use this profile's key, jump hosts, and host-key settings in the native SFTP browser, Waypane needs to add one Include line to ~/.ssh/config. Your existing SSH settings will remain unchanged."),
+                       tr("Enable Waypane SSH integration?"),
+                       tr("To use saved profiles as jump hosts and apply profile settings in the native SFTP browser, Waypane needs to add one Include line to ~/.ssh/config. Your existing SSH settings will remain unchanged."),
                        QMessageBox::NoButton,
                        this);
-    auto *enable = prompt.addButton(tr("Enable SFTP integration"), QMessageBox::AcceptRole);
-    prompt.addButton(tr("Terminal only"), QMessageBox::RejectRole);
+    auto *enable = prompt.addButton(tr("Enable integration"), QMessageBox::AcceptRole);
+    prompt.addButton(tr("Not now"), QMessageBox::RejectRole);
     prompt.exec();
     if (prompt.clickedButton() != enable) {
         return false;
     }
     if (!Waypane::ManagedSshConfig::installInclude(&error)) {
-        QMessageBox::warning(this, tr("SFTP configuration"), tr("Could not update ~/.ssh/config: %1").arg(error));
+        QMessageBox::warning(this, tr("SSH integration"), tr("Could not update ~/.ssh/config: %1").arg(error));
         return false;
     }
     return true;
@@ -1503,6 +1516,11 @@ bool WaypaneWindow::ensureManagedSshConfig()
 
 void WaypaneWindow::syncManagedSshConfig()
 {
+    QString error;
+    if (!Waypane::ManagedSshConfig::write(m_connections.profiles(), &error)) {
+        m_workspaceEndpoint->setText(tr("Could not update managed SSH profiles: %1").arg(error));
+        return;
+    }
     if (!Waypane::ManagedSshConfig::isIncluded() && Waypane::ManagedSshConfig::hasInclude()) {
         QString migrationError;
         if (!Waypane::ManagedSshConfig::installInclude(&migrationError)) {
@@ -1510,13 +1528,17 @@ void WaypaneWindow::syncManagedSshConfig()
             return;
         }
     }
-    if (!Waypane::ManagedSshConfig::isIncluded()) {
-        return;
+}
+
+bool WaypaneWindow::usesSavedJumpHost(const Waypane::ConnectionProfile &profile) const
+{
+    for (const Waypane::ConnectionProfile &candidate : m_connections.profiles()) {
+        if (!candidate.id.isEmpty()
+            && profile.jumpHosts.contains(Waypane::ManagedSshConfig::aliasFor(candidate))) {
+            return true;
+        }
     }
-    QString error;
-    if (!Waypane::ManagedSshConfig::write(m_connections.profiles(), &error)) {
-        m_workspaceEndpoint->setText(tr("Could not update managed SSH profiles: %1").arg(error));
-    }
+    return false;
 }
 
 void WaypaneWindow::filterConnections(const QString &text)

@@ -4,12 +4,18 @@
 namespace Waypane
 {
 
-QStringList SshCommandBuilder::arguments(const ConnectionProfile &profile, bool tunnelsOnly)
+QStringList SshCommandBuilder::arguments(const ConnectionProfile &profile, bool tunnelsOnly, const QString &configurationFile)
 {
     QStringList result;
     if (!profile.sshConfigAlias.isEmpty() && !tunnelsOnly) {
+        if (!configurationFile.isEmpty()) {
+            result.append({QStringLiteral("-F"), configurationFile});
+        }
         result.append(profile.sshConfigAlias);
         return result;
+    }
+    if (!configurationFile.isEmpty()) {
+        result.append({QStringLiteral("-F"), configurationFile});
     }
     if (profile.port != 22) {
         result.append({QStringLiteral("-p"), QString::number(profile.port)});

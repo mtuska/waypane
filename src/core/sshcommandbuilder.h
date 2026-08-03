@@ -11,7 +11,9 @@ namespace Waypane
 class SshCommandBuilder
 {
 public:
-    [[nodiscard]] static QStringList arguments(const ConnectionProfile &profile, bool tunnelsOnly = false);
+    [[nodiscard]] static QStringList arguments(const ConnectionProfile &profile,
+                                               bool tunnelsOnly = false,
+                                               const QString &configurationFile = {});
 };
 
 }

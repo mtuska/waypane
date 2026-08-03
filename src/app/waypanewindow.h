@@ -111,6 +111,7 @@ private:
     [[nodiscard]] bool confirmDiscardRemoteEdit();
     [[nodiscard]] bool isDarkTheme() const;
     [[nodiscard]] bool ensureManagedSshConfig();
+    [[nodiscard]] bool usesSavedJumpHost(const Waypane::ConnectionProfile &profile) const;
     void syncManagedSshConfig();
     void enqueueTransfer(const QList<QUrl> &sources, const QUrl &destination, bool upload);
     void startNextTransfer();

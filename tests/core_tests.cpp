@@ -26,6 +26,7 @@ private slots:
     void repairsIncludeAfterHostBlock();
     void scopesLegacyAlgorithmsToOneProfile();
     void buildsTunnelOnlyArgumentVector();
+    void usesManagedConfigForSavedJumpHosts();
 };
 
 void CoreTests::buildsArgumentVectorWithoutShellInterpolation()
@@ -239,6 +240,27 @@ void CoreTests::buildsTunnelOnlyArgumentVector()
                           QStringLiteral("-N"),
                           QStringLiteral("-T"),
                           QStringLiteral("deploy@tunnel.example.test")}));
+}
+
+void CoreTests::usesManagedConfigForSavedJumpHosts()
+{
+    Waypane::ConnectionProfile profile;
+    profile.name = QStringLiteral("Internal database");
+    profile.host = QStringLiteral("db.internal.example");
+    profile.jumpHosts = {QStringLiteral("waypane-bastion-id")};
+
+    QCOMPARE(Waypane::SshCommandBuilder::arguments(profile, false, QStringLiteral("/tmp/waypane-managed-config")),
+             QStringList({QStringLiteral("-F"),
+                          QStringLiteral("/tmp/waypane-managed-config"),
+                          QStringLiteral("-J"),
+                          QStringLiteral("waypane-bastion-id"),
+                          QStringLiteral("db.internal.example")}));
+
+    profile.sshConfigAlias = QStringLiteral("imported-database");
+    QCOMPARE(Waypane::SshCommandBuilder::arguments(profile, false, QStringLiteral("/tmp/waypane-managed-config")),
+             QStringList({QStringLiteral("-F"),
+                          QStringLiteral("/tmp/waypane-managed-config"),
+                          QStringLiteral("imported-database")}));
 }
 
 QTEST_MAIN(CoreTests)
