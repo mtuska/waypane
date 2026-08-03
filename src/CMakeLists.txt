@@ -127,6 +127,7 @@ foreach(icon_size 16 32 48 64 128 256 512)
     install(
         FILES "${CMAKE_SOURCE_DIR}/assets/icons/hicolor/${icon_size}x${icon_size}/apps/waypane.png"
         DESTINATION "share/icons/hicolor/${icon_size}x${icon_size}/apps"
+        RENAME dev.tuska.waypane.png
     )
 endforeach()
 

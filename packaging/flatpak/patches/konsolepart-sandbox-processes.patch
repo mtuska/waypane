@@ -1,0 +1,222 @@
+From: Waypane Contributors <hello@tuska.dev>
+Subject: Keep Waypane terminal processes inside its Flatpak sandbox
+
+Waypane deliberately exposes a sandbox-local terminal and does not grant
+org.freedesktop.Flatpak talk access. Avoid Konsole's host-command and host
+process-introspection paths, which otherwise fail and can index empty process
+results.
+
+diff --git a/src/ProcessInfo.cpp b/src/ProcessInfo.cpp
+index 8cede8e..23ddcce 100644
+--- a/src/ProcessInfo.cpp
++++ b/src/ProcessInfo.cpp
+@@ -1396,11 +1396,9 @@ ProcessInfo *ProcessInfo::newInstance(int pid, int sessionPid, QByteArrayView tt
+     ProcessInfo *info;
+ #if defined(Q_OS_LINUX)
+     if (KSandbox::isFlatpak()) {
+-        if (tty.isEmpty()) {
+-            info = new NullProcessInfo(pid);
+-        } else {
+-            info = new FlatpakProcessInfo(pid, tty);
+-        }
++        // Waypane's Flatpak launches its local shell inside the sandbox and
++        // deliberately has no permission to inspect host processes.
++        info = new NullProcessInfo(pid);
+     } else {
+         info = new LinuxProcessInfo(pid, sessionPid);
+     }
+diff --git a/src/Pty.cpp b/src/Pty.cpp
+index a5d494c..b53f678 100644
+--- a/src/Pty.cpp
++++ b/src/Pty.cpp
+@@ -27,30 +27,6 @@
+
+ using Konsole::Pty;
+
+-static int getShellProcessId(QLatin1String tty)
+-{
+-    if (!KSandbox::isFlatpak()) {
+-        qFatal("Shouldn't be called in non flatpak world");
+-    }
+-    QProcess proc;
+-    proc.setProgram(QStringLiteral("ps"));
+-    proc.setArguments({QStringLiteral("-o"), QStringLiteral("pid"), QStringLiteral("-t"), QStringLiteral("%1").arg(tty), QStringLiteral("--no-headers")});
+-    KSandbox::startHostProcess(proc, QProcess::ReadOnly);
+-    if (proc.waitForStarted() && proc.waitForFinished()) {
+-        proc.setReadChannel(QProcess::StandardOutput);
+-        char buffer[256];
+-        int readCount = proc.readLine(buffer, sizeof(buffer));
+-        auto line = readCount > 0 ? QByteArrayView(buffer, readCount).trimmed() : QByteArrayView();
+-        bool ok;
+-        auto pid = line.toInt(&ok);
+-        if (ok) {
+-            return pid;
+-        }
+-    }
+-    qWarning("Unable to get shell process id");
+-    return 0;
+-}
+-
+ Pty::Pty(QObject *aParent)
+     : Pty(-1, aParent)
+ {
+@@ -297,9 +273,6 @@ int Pty::start(const QString &programName, const QStringList &programArguments,
+     KProcess::start();
+
+     if (waitForStarted()) {
+-        if (KSandbox::isFlatpak()) {
+-            _shellProcessId = getShellProcessId(QLatin1String(pty()->ttyName()));
+-        }
+         return 0;
+     } else {
+         return -1;
+@@ -331,37 +304,6 @@ void Pty::closePty()
+
+ int Pty::foregroundProcessGroup() const
+ {
+-    if (KSandbox::isFlatpak()) {
+-        QProcess proc;
+-        proc.setProgram(QStringLiteral("ps"));
+-        proc.setArguments({QStringLiteral("-o"),
+-                           QStringLiteral("%p\t"),
+-                           QStringLiteral("-o"),
+-                           QStringLiteral("stat"),
+-                           QStringLiteral("--tty"),
+-                           QString::fromLatin1(pty()->ttyName()),
+-                           QStringLiteral("--no-headers")});
+-
+-        KSandbox::startHostProcess(proc, QProcess::ReadOnly);
+-        if (proc.waitForStarted() && proc.waitForFinished()) {
+-            while (proc.canReadLine()) {
+-                char buffer[256];
+-                int readCount = proc.readLine(buffer, sizeof(buffer));
+-                auto line = readCount > 0 ? QByteArrayView(buffer, readCount) : QByteArrayView();
+-                int i = line.indexOf('\t');
+-                if (i == -1) {
+-                    return 0;
+-                }
+-                QByteArrayView pid = line.mid(0, i);
+-                QByteArrayView stat = line.mid(i + 1);
+-                if (stat.contains("+")) {
+-                    return pid.trimmed().toInt();
+-                }
+-            }
+-        }
+-        return 0;
+-    }
+-
+     const int master_fd = pty()->masterFd();
+
+     if (master_fd >= 0) {
+@@ -381,7 +323,7 @@ int Pty::foregroundProcessGroup() const
+
+ int Pty::shellProcessId() const
+ {
+-    return KSandbox::isFlatpak() ? _shellProcessId : processId();
++    return processId();
+ }
+
+ int Pty::flatpakSpawnProcessId() const
+diff --git a/src/session/Session.cpp b/src/session/Session.cpp
+index c67c5ef..5781842 100644
+--- a/src/session/Session.cpp
++++ b/src/session/Session.cpp
+@@ -408,20 +408,6 @@ QString Session::checkProgram(const QString &program)
+         return QString();
+     }
+
+-#ifndef Q_OS_WIN
+-    if (KSandbox::isFlatpak()) {
+-        QProcess proc;
+-        // run "test -x exec" on the host to see if the shell is executable
+-        proc.setProgram(QStringLiteral("test"));
+-        proc.setArguments(QStringList{QStringLiteral("-x"), exec});
+-        KSandbox::startHostProcess(proc, QProcess::ReadOnly);
+-        if (proc.waitForStarted() && proc.waitForFinished(-1)) {
+-            return proc.exitCode() == 0 ? exec : QString();
+-        }
+-        return {};
+-    }
+-#endif // Q_OS_WIN
+-
+     QFileInfo info(exec);
+     if (info.isAbsolute() && info.exists() && info.isExecutable()) {
+         return exec;
+@@ -462,30 +448,6 @@ QString Session::shellSessionId() const
+     return friendlyUuid;
+ }
+
+-static QStringList postProcessArgs(const QStringList &contextArgs, const QStringList &args)
+-{
+-#ifndef Q_OS_WIN
+-    if (!KSandbox::isFlatpak()) {
+-        return contextArgs + args;
+-    }
+-    QStringList arguments;
+-    // last arg is the program
+-    arguments = contextArgs;
+-    QString program = arguments.back();
+-    arguments.pop_back();
+-    // Needs to be explicitly specified, KSandbox::makeHostContext
+-    // ignores any variables set in the system environment so this
+-    // never gets set.
+-    arguments.push_back(QStringLiteral("--env=TERM=xterm-256color"));
+-    arguments.push_back(program);
+-    arguments << args;
+-    return arguments;
+-#else
+-    qCritical() << "Should never get called on windows";
+-    return {};
+-#endif
+-}
+-
+ void Session::run()
+ {
+     // FIXME: run() is called twice in some instances
+@@ -511,17 +473,7 @@ void Session::run()
+     auto pw = getpwuid(getuid());
+     // pw: Do not pass the returned pointer to free.
+     if (pw != nullptr) {
+-        if (KSandbox::isFlatpak()) {
+-            QProcess proc;
+-            proc.setProgram(QStringLiteral("getent"));
+-            proc.setArguments({QStringLiteral("passwd"), QString::number(pw->pw_uid)});
+-            KSandbox::startHostProcess(proc);
+-            proc.waitForFinished();
+-            const auto shell = proc.readAllStandardOutput().simplified().split(':').at(6);
+-            programs.insert(1, QString::fromUtf8(shell));
+-        } else {
+-            programs.insert(1, QString::fromLocal8Bit(pw->pw_shell));
+-        }
++        programs.insert(1, QString::fromLocal8Bit(pw->pw_shell));
+     }
+ #endif
+
+@@ -585,12 +537,6 @@ void Session::run()
+     _shellProcess->setUseUtmp(_addToUtmp);
+ #endif
+
+-#ifndef Q_OS_WIN
+-    if (KSandbox::isFlatpak()) {
+-        _shellProcess->pty()->setCTtyEnabled(false); // not possibly inside sandbox
+-    }
+-#endif
+-
+     // this is not strictly accurate use of the COLORFGBG variable.  This does not
+     // tell the terminal exactly which colors are being used, but instead approximates
+     // the color scheme as "black on white" or "white on black" depending on whether
+@@ -622,13 +568,7 @@ void Session::run()
+     const QStringList fullEnv = _environment + secretEnv;
+
+ #ifndef Q_OS_WIN
+-    const auto originalEnvironment = _shellProcess->environment();
+-    _shellProcess->setProgram(exec);
+-    _shellProcess->setEnvironment(originalEnvironment + fullEnv);
+-    const auto context = KSandbox::makeHostContext(*_shellProcess);
+-    arguments = postProcessArgs(context.arguments, arguments);
+-    _shellProcess->setEnvironment(originalEnvironment);
+-    const auto result = _shellProcess->start(context.program, arguments, fullEnv);
++    const auto result = _shellProcess->start(exec, arguments, fullEnv);
+ #else // Q_OS_WIN
+     const auto size = _emulation->imageSize();
+     const int lines = size.height();

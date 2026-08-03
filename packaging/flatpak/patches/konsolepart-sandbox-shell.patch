@@ -1,0 +1,44 @@
+From: Waypane Contributors <hello@tuska.dev>
+Subject: Use the sandbox shell for KonsolePart
+
+Waypane deliberately does not grant org.freedesktop.Flatpak talk access. A
+local terminal is a sandbox terminal, so looking up and launching the host
+login shell is both unnecessary and contrary to that boundary. Without the
+permission, the host lookup returns no command and Konsole later asserts while
+starting the session.
+
+--- a/src/profile/Profile.cpp
++++ b/src/profile/Profile.cpp
+@@ -222,25 +222,13 @@ static QString defaultShell()
+ {
+ #ifndef Q_OS_WIN
+-    if (!KSandbox::isFlatpak()) {
+-        return QString::fromUtf8(qgetenv("SHELL"));
+-    }
+-
+-#ifdef HAVE_GETPWUID
+-    auto pw = getpwuid(getuid());
+-    // pw: Do not pass the returned pointer to free.
+-    if (pw != nullptr) {
+-        QProcess proc;
+-        proc.setProgram(QStringLiteral("getent"));
+-        proc.setArguments({QStringLiteral("passwd"), QString::number(pw->pw_uid)});
+-        KSandbox::startHostProcess(proc);
+-        proc.waitForFinished();
+-        const auto output = proc.readAllStandardOutput().simplified();
+-        if (auto parts = QString::fromUtf8(output).split(QLatin1Char(':')); output.size() >= 7) {
+-            return parts.at(6);
+-        }
++    const QString environmentShell = QString::fromUtf8(qgetenv("SHELL"));
++    if (!environmentShell.isEmpty()) {
++        return environmentShell;
+     }
+-    return {};
+-#endif // HAVE_GETPWUID
++
++    // Flatpak's runtime always provides /bin/sh. Keep local terminals inside
++    // the sandbox instead of requesting host-command execution permission.
++    return QStringLiteral("/bin/sh");
+
+ #else // Q_OS_WIN
+     auto shell = GetWindowPowerShell();

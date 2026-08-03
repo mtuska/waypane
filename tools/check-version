@@ -23,6 +23,10 @@ def match(path: str, pattern: str) -> str:
 cmake = match("CMakeLists.txt", r"project\(Waypane VERSION ([0-9]+\.[0-9]+\.[0-9]+)")
 versions = {
     "CMakeLists.txt": cmake,
+    "MCP server": match(
+        "tools/waypane-mcp",
+        r'SERVER = \{"name": "waypane", "version": "([^"]+)"\}',
+    ),
     "AppStream metadata": match(
         "packaging/dev.tuska.waypane.metainfo.xml",
         r'<release version="([^"]+)"',

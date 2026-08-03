@@ -76,6 +76,10 @@ modules:
       - type: git
         url: https://invent.kde.org/utilities/konsole.git
         commit: bf8e086500b36040bbbe5510edc755e2b8a48b84
+      - type: patch
+        path: patches/konsolepart-sandbox-shell.patch
+      - type: patch
+        path: patches/konsolepart-sandbox-processes.patch
 
   - name: waypane
     buildsystem: cmake-ninja
