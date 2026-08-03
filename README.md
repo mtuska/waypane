@@ -72,7 +72,59 @@ Weak algorithms are disabled for ordinary profiles. The per-profile legacy mode
 adds only the explicitly supported RSA/SHA-1, group1/group14, CBC, and HMAC-SHA1
 options, and Waypane refuses to use the system SSH binary for such a profile.
 
-Run the MCP server directly:
+## MCP integration
+
+Waypane includes a local stdio MCP server. It runs on demand as a child of the
+MCP client rather than as a background network service. Connection profiles can
+be listed, searched, and managed while the Waypane window is closed. Visible
+workspace actions such as opening SSH, SFTP, tunnels, terminals, and splits
+require Waypane to be running because they use its user-only local control
+socket.
+
+For the Flatpak build, register Waypane with Codex for the current user:
+
+```bash
+codex mcp add waypane -- \
+  flatpak run --command=waypane-mcp dev.tuska.waypane
+```
+
+Codex can alternatively be configured in `~/.codex/config.toml`, or in a
+trusted project's `.codex/config.toml`:
+
+```toml
+[mcp_servers.waypane]
+command = "flatpak"
+args = ["run", "--command=waypane-mcp", "dev.tuska.waypane"]
+```
+
+Register it for every Claude Code project owned by the current user with:
+
+```bash
+claude mcp add --transport stdio --scope user waypane -- \
+  flatpak run --command=waypane-mcp dev.tuska.waypane
+```
+
+Claude Code project scope uses a `.mcp.json` file in the project root:
+
+```json
+{
+  "mcpServers": {
+    "waypane": {
+      "type": "stdio",
+      "command": "flatpak",
+      "args": ["run", "--command=waypane-mcp", "dev.tuska.waypane"]
+    }
+  }
+}
+```
+
+The Settings window provides copy-ready versions of these setup commands and
+the project JSON. It intentionally does not modify host AI-client configuration
+from inside the Flatpak sandbox. These examples assume Codex or Claude runs on
+the host and can find `flatpak` in `PATH`. Native packages use `waypane-mcp` as
+the command instead.
+
+For development, run the MCP server directly from a checkout:
 
 ```bash
 ./tools/waypane-mcp

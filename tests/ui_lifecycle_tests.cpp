@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "app/waypanewindow.h"
+#include "app/settingsdialog.h"
+#include "waypane/version.h"
 
 #include <KParts/ReadOnlyPart>
 #include <kde_terminal_interface.h>
 
 #include <QCoreApplication>
+#include <QApplication>
+#include <QClipboard>
 #include <QEvent>
 #include <QJsonObject>
+#include <QLabel>
 #include <QMetaObject>
 #include <QSettings>
+#include <QPushButton>
 #include <QTest>
 
 class UiLifecycleTests : public QObject
@@ -23,6 +29,8 @@ private slots:
     void appliesManagedTerminalColorProfile();
     void controlWClosesCurrentTab();
     void terminalExitClosesOwningTab();
+    void copiesFlatpakMcpSetupCommands();
+    void settingsShowApplicationVersion();
 };
 
 void UiLifecycleTests::init()
@@ -122,6 +130,36 @@ void UiLifecycleTests::terminalExitClosesOwningTab()
     QVERIFY(terminal);
     terminal->sendInput(QString(QChar(0x04)));
     QTRY_COMPARE_WITH_TIMEOUT(window.runtimeStatus().value(QStringLiteral("terminalTabCount")).toInt(), 0, 3000);
+}
+
+void UiLifecycleTests::copiesFlatpakMcpSetupCommands()
+{
+    qputenv("FLATPAK_ID", QByteArrayLiteral("dev.tuska.waypane"));
+    SettingsDialog dialog;
+
+    auto *codex = dialog.findChild<QPushButton *>(QStringLiteral("copyCodexMcpButton"));
+    auto *claude = dialog.findChild<QPushButton *>(QStringLiteral("copyClaudeMcpButton"));
+    auto *json = dialog.findChild<QPushButton *>(QStringLiteral("copyMcpJsonButton"));
+    QVERIFY(codex);
+    QVERIFY(claude);
+    QVERIFY(json);
+
+    codex->click();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("codex mcp add waypane -- flatpak run --command=waypane-mcp dev.tuska.waypane"));
+    claude->click();
+    QCOMPARE(QApplication::clipboard()->text(), QStringLiteral("claude mcp add --transport stdio --scope user waypane -- flatpak run --command=waypane-mcp dev.tuska.waypane"));
+    json->click();
+    QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("\"command\": \"flatpak\"")));
+    QVERIFY(QApplication::clipboard()->text().contains(QStringLiteral("dev.tuska.waypane")));
+    qunsetenv("FLATPAK_ID");
+}
+
+void UiLifecycleTests::settingsShowApplicationVersion()
+{
+    SettingsDialog dialog;
+    auto *version = dialog.findChild<QLabel *>(QStringLiteral("versionLabel"));
+    QVERIFY(version);
+    QCOMPARE(version->text(), QStringLiteral("Version %1").arg(QStringLiteral(WAYPANE_VERSION)));
 }
 
 QTEST_MAIN(UiLifecycleTests)

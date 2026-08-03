@@ -1,5 +1,5 @@
 Name:           waypane
-Version:        0.1.2
+Version:        0.1.3
 Release:        1%{?dist}
 Summary:        Native workspace for SSH, SFTP, terminals, and tunnels
 
@@ -91,6 +91,9 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/dev.tuska.wayp
 %{_metainfodir}/dev.tuska.waypane.metainfo.xml
 
 %changelog
+* Mon Aug 03 2026 Waypane Contributors <hello@tuska.dev> - 0.1.3-1
+- Add MCP client setup helpers and show the current version in Settings
+
 * Mon Aug 03 2026 Waypane Contributors <hello@tuska.dev> - 0.1.2-1
 - Keep failed SSH diagnostics visible with profile-aware recovery guidance
 

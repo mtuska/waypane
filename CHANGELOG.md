@@ -5,6 +5,16 @@ All notable changes to Waypane will be documented here. The project follows
 
 ## Unreleased
 
+## 0.1.3 - 2026-08-03
+
+### Added
+
+- Add copy-ready MCP setup commands for Codex and Claude Code, plus a project
+  `.mcp.json` template, to Settings.
+- Display the installed Waypane version in Settings.
+- Document how the MCP server runs from Flatpak and how to configure supported
+  clients.
+
 ## 0.1.2 - 2026-08-03
 
 ### Fixed

@@ -639,7 +639,7 @@ void WaypaneWindow::applyTheme()
         #titleBar { background: %4; border-bottom: 1px solid %3; }
         #appName, #workspaceTitle, #dialogTitle, #cardTitle { font-weight: 600; }
         #descriptor, #sectionLabel { color: %5; font-size: 10px; font-weight: 700; letter-spacing: 1px; }
-        #mutedLabel { color: %5; font-size: 11px; }
+        #mutedLabel, #versionLabel { color: %5; font-size: 11px; }
         #connectionsPane { background: %6; border-right: 1px solid %3; }
         #workspace { background: %2; }
         #workspaceHeader { background: %4; border-bottom: 1px solid %3; }

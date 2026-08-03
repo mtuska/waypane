@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "settingsdialog.h"
+#include "waypane/version.h"
 
+#include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -20,6 +23,38 @@
 
 namespace
 {
+QString mcpServerCommand()
+{
+    if (!qEnvironmentVariable("FLATPAK_ID").isEmpty()) {
+        return QStringLiteral("flatpak run --command=waypane-mcp dev.tuska.waypane");
+    }
+    return QStringLiteral("waypane-mcp");
+}
+
+QString mcpJsonConfiguration()
+{
+    if (!qEnvironmentVariable("FLATPAK_ID").isEmpty()) {
+        return QStringLiteral(R"({
+  "mcpServers": {
+    "waypane": {
+      "type": "stdio",
+      "command": "flatpak",
+      "args": ["run", "--command=waypane-mcp", "dev.tuska.waypane"]
+    }
+  }
+})");
+    }
+    return QStringLiteral(R"({
+  "mcpServers": {
+    "waypane": {
+      "type": "stdio",
+      "command": "waypane-mcp",
+      "args": []
+    }
+  }
+})");
+}
+
 QString defaultLogDirectory()
 {
     QString documents = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
@@ -48,13 +83,20 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     layout->setSpacing(18);
 
     auto *titleRow = new QHBoxLayout;
+    auto *titleColumn = new QVBoxLayout;
+    titleColumn->setSpacing(1);
     auto *title = new QLabel(tr("Waypane settings"), frame);
     title->setObjectName(QStringLiteral("dialogTitle"));
+    auto *version = new QLabel(tr("Version %1").arg(QStringLiteral(WAYPANE_VERSION)), frame);
+    version->setObjectName(QStringLiteral("versionLabel"));
+    version->setProperty("muted", true);
     auto *close = new QToolButton(frame);
     close->setObjectName(QStringLiteral("windowCloseButton"));
     close->setText(QStringLiteral("×"));
     connect(close, &QToolButton::clicked, this, &QDialog::reject);
-    titleRow->addWidget(title);
+    titleColumn->addWidget(title);
+    titleColumn->addWidget(version);
+    titleRow->addLayout(titleColumn);
     titleRow->addStretch();
     titleRow->addWidget(close);
     layout->addLayout(titleRow);
@@ -106,6 +148,37 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     m_reconnectSsh->setToolTip(tr("Disabled by default to avoid unexpected network connections"));
     layout->addWidget(m_reconnectSsh);
 
+    auto *mcpLabel = new QLabel(tr("AI & MCP INTEGRATION"), frame);
+    mcpLabel->setObjectName(QStringLiteral("sectionLabel"));
+    layout->addWidget(mcpLabel);
+    auto *mcpHelp = new QLabel(tr("Waypane exposes a local stdio MCP server. Copy a setup command and run it in a host terminal; live terminal, SFTP, and tunnel actions require Waypane to be open."), frame);
+    mcpHelp->setObjectName(QStringLiteral("mutedLabel"));
+    mcpHelp->setWordWrap(true);
+    layout->addWidget(mcpHelp);
+
+    auto *mcpButtons = new QHBoxLayout;
+    auto *copyCodex = new QPushButton(tr("Copy Codex setup"), frame);
+    copyCodex->setObjectName(QStringLiteral("copyCodexMcpButton"));
+    copyCodex->setToolTip(tr("Copy the command that registers Waypane for this user in Codex"));
+    connect(copyCodex, &QPushButton::clicked, this, &SettingsDialog::copyCodexMcpCommand);
+    auto *copyClaude = new QPushButton(tr("Copy Claude setup"), frame);
+    copyClaude->setObjectName(QStringLiteral("copyClaudeMcpButton"));
+    copyClaude->setToolTip(tr("Copy the command that registers Waypane for this user in Claude Code"));
+    connect(copyClaude, &QPushButton::clicked, this, &SettingsDialog::copyClaudeMcpCommand);
+    auto *copyJson = new QPushButton(tr("Copy .mcp.json"), frame);
+    copyJson->setObjectName(QStringLiteral("copyMcpJsonButton"));
+    copyJson->setToolTip(tr("Copy a Claude-compatible project configuration"));
+    connect(copyJson, &QPushButton::clicked, this, &SettingsDialog::copyMcpJson);
+    mcpButtons->addWidget(copyCodex);
+    mcpButtons->addWidget(copyClaude);
+    mcpButtons->addWidget(copyJson);
+    layout->addLayout(mcpButtons);
+
+    m_mcpCopyStatus = new QLabel(frame);
+    m_mcpCopyStatus->setObjectName(QStringLiteral("mutedLabel"));
+    m_mcpCopyStatus->setAccessibleName(tr("MCP setup copy status"));
+    layout->addWidget(m_mcpCopyStatus);
+
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, frame);
     connect(buttons, &QDialogButtonBox::accepted, this, &SettingsDialog::save);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -118,6 +191,27 @@ void SettingsDialog::chooseLogDirectory()
     if (!directory.isEmpty()) {
         m_logDirectory->setText(directory);
     }
+}
+
+void SettingsDialog::copyCodexMcpCommand()
+{
+    copyMcpText(QStringLiteral("codex mcp add waypane -- ") + mcpServerCommand(), tr("Codex setup command copied. Run it in a host terminal."));
+}
+
+void SettingsDialog::copyClaudeMcpCommand()
+{
+    copyMcpText(QStringLiteral("claude mcp add --transport stdio --scope user waypane -- ") + mcpServerCommand(), tr("Claude setup command copied. Run it in a host terminal."));
+}
+
+void SettingsDialog::copyMcpJson()
+{
+    copyMcpText(mcpJsonConfiguration(), tr("Project configuration copied. Save it as .mcp.json in the project root."));
+}
+
+void SettingsDialog::copyMcpText(const QString &text, const QString &description)
+{
+    QApplication::clipboard()->setText(text);
+    m_mcpCopyStatus->setText(description);
 }
 
 void SettingsDialog::save()
