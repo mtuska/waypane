@@ -1,0 +1,48 @@
+name: Private OpenSSH
+
+on:
+  pull_request:
+    paths:
+      - tools/build-private-openssh
+      - .github/workflows/private-openssh.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/build-private-openssh
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install toolchain
+        run: |
+          dnf install -y \
+            binutils curl file findutils gcc glibc-langpack-en gzip make \
+            perl-interpreter 'perl(Digest::SHA)' 'perl(File::Basename)' \
+            'perl(File::Compare)' 'perl(File::Copy)' 'perl(File::Path)' \
+            'perl(File::Spec::Functions)' 'perl(FindBin)' 'perl(IPC::Cmd)' \
+            'perl(Module::Load::Conditional)' 'perl(Pod::Html)' \
+            'perl(Time::HiRes)' 'perl(Time::Piece)' 'perl(bigint)' \
+            'perl(lib)' tar zlib-devel
+      - name: Build private runtime
+        run: ./tools/build-private-openssh "$GITHUB_WORKSPACE/private-openssh"
+      - name: Verify isolation and key generation
+        run: |
+          private-openssh/bin/ssh -V
+          test -z "$(ldd private-openssh/bin/ssh | grep -E 'lib(ssl|crypto)' || true)"
+          test -z "$(readelf -d private-openssh/bin/ssh | grep -E '(RPATH|RUNPATH)' || true)"
+          private-openssh/bin/ssh-keygen -q -t ed25519 -N '' -f /tmp/waypane-ci-key
+          test -s /tmp/waypane-ci-key.pub
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: private-openssh-${{ runner.arch }}
+          path: private-openssh
+          retention-days: 14

@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""Waypane's dependency-free local MCP server (stdio transport)."""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+from typing import Any
+
+SERVER = {"name": "waypane", "version": "0.1.0"}
+PROTOCOL_VERSION = "2025-11-25"
+
+
+def data_path() -> Path:
+    override = os.environ.get("WAYPANE_DATA_DIR")
+    if override:
+        return Path(override) / "connections.json"
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return config_home / "waypane" / "connections.json"
+
+
+def control_socket_path() -> Path:
+    override = os.environ.get("WAYPANE_CONTROL_SOCKET")
+    if override:
+        return Path(override)
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        return Path(runtime) / "waypane" / "control.sock"
+    return Path(tempfile.gettempdir()) / f"waypane-{os.getuid()}" / "waypane" / "control.sock"
+
+
+def live_request(method: str, **arguments: Any) -> dict[str, Any]:
+    path = control_socket_path()
+    request = {"method": method, **arguments}
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(3)
+            connection.connect(str(path))
+            connection.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+            response = b""
+            while not response.endswith(b"\n"):
+                chunk = connection.recv(65536)
+                if not chunk:
+                    break
+                response += chunk
+    except (OSError, TimeoutError) as error:
+        raise ValueError(f"Waypane is not running or its control socket is unavailable: {error}") from error
+    if not response:
+        raise ValueError("Waypane closed the control connection without a response")
+    result = json.loads(response)
+    if not result.get("ok"):
+        raise ValueError(result.get("error", "Waypane rejected the live operation"))
+    return result
+
+
+def load_document() -> dict[str, Any]:
+    path = data_path()
+    if not path.exists():
+        return {"schemaVersion": 1, "connections": []}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict) or not isinstance(document.get("connections"), list):
+        raise ValueError("Waypane profile store has an invalid structure")
+    return document
+
+
+def save_document(document: dict[str, Any]) -> None:
+    path = data_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".connections-", suffix=".json", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(document, stream, indent=2, sort_keys=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def redacted(profile: dict[str, Any]) -> dict[str, Any]:
+    safe = dict(profile)
+    safe.pop("secretId", None)
+    return safe
+
+
+def find_profile(connection_id: str) -> dict[str, Any]:
+    for profile in load_document()["connections"]:
+        if profile.get("id") == connection_id:
+            return profile
+    raise ValueError(f"Unknown connection: {connection_id}")
+
+
+def ssh_argv(profile: dict[str, Any]) -> list[str]:
+    result = ["ssh"]
+    if profile.get("sshConfigAlias"):
+        return ["ssh", profile["sshConfigAlias"]]
+    port = int(profile.get("port", 22))
+    if port != 22:
+        result.extend(["-p", str(port)])
+    identity = profile.get("identityFile", "")
+    if identity:
+        result.extend(["-i", identity])
+    jumps = profile.get("jumpHosts", [])
+    if jumps:
+        result.extend(["-J", ",".join(jumps)])
+    for forward in profile.get("localForwards", []):
+        result.extend(["-L", forward])
+    for forward in profile.get("remoteForwards", []):
+        result.extend(["-R", forward])
+    for forward in profile.get("dynamicForwards", []):
+        result.extend(["-D", forward])
+    if profile.get("agentForwarding", False):
+        result.append("-A")
+    if profile.get("compression", False):
+        result.append("-C")
+    if profile.get("legacyCompatibility", False):
+        result.extend(["-o", "HostKeyAlgorithms=+ssh-rsa"])
+        result.extend(["-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"])
+        result.extend(["-o", "KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1"])
+        result.extend(["-o", "Ciphers=+aes128-cbc,aes192-cbc,aes256-cbc,3des-cbc"])
+        result.extend(["-o", "MACs=+hmac-sha1,hmac-sha1-96"])
+    if profile.get("hostKeyPolicy") and profile["hostKeyPolicy"] != "ask":
+        result.extend(["-o", f"StrictHostKeyChecking={profile['hostKeyPolicy']}"])
+    if profile.get("knownHostsFile"):
+        result.extend(["-o", f"UserKnownHostsFile={profile['knownHostsFile']}"])
+    destination = profile["host"]
+    if profile.get("username"):
+        destination = f"{profile['username']}@{destination}"
+    result.append(destination)
+    return result
+
+
+TOOLS = [
+    {
+        "name": "waypane_list_connections",
+        "description": "List Waypane SSH connection profiles. Secrets are always redacted.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "waypane_get_connection",
+        "description": "Get one Waypane connection profile by ID, with secret references redacted.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_search_connections",
+        "description": "Search Waypane profiles by name, host, username, nested folder, or tag.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "minLength": 1}},
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_build_ssh_argv",
+        "description": "Return the exact non-shell SSH argument vector for a connection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_upsert_connection",
+        "description": "Create or update a non-secret Waypane SSH connection profile.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "name": {"type": "string", "minLength": 1},
+                "host": {"type": "string", "minLength": 1},
+                "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                "username": {"type": "string"},
+                "sshConfigAlias": {"type": "string"},
+                "group": {"type": "string"},
+                "folder": {"type": "string", "description": "Nested folder path such as Production/US East"},
+                "authentication": {"type": "string", "enum": ["agent", "key", "password"]},
+                "identityFile": {"type": "string"},
+                "jumpHosts": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "localForwards": {"type": "array", "items": {"type": "string"}},
+                "remoteForwards": {"type": "array", "items": {"type": "string"}},
+                "dynamicForwards": {"type": "array", "items": {"type": "string"}},
+                "remotePath": {"type": "string"},
+                "hostKeyPolicy": {"type": "string", "enum": ["ask", "accept-new", "yes"]},
+                "knownHostsFile": {"type": "string"},
+                "agentForwarding": {"type": "boolean"},
+                "compression": {"type": "boolean"},
+                "legacyCompatibility": {"type": "boolean"},
+            },
+            "required": ["name", "host"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_delete_connection",
+        "description": "Delete a Waypane profile. External key files and keyring secrets are untouched.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_runtime_status",
+        "description": "Inspect the running Waypane desktop instance and its active workspace.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "waypane_connect_ssh",
+        "description": "Open an interactive SSH terminal for a saved profile in the running Waypane desktop app. This does not open SFTP.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_browse_sftp",
+        "description": "Open the SFTP browser for a saved profile in the running Waypane desktop app. This does not open an SSH terminal.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_open_tunnels",
+        "description": "Start the saved SSH forwards for a profile in a visible terminal tab. Closing the tab stops them.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_open_local_terminal",
+        "description": "Open a new local terminal tab in the running Waypane desktop app.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "waypane_split_terminal",
+        "description": "Split the current terminal with a new local pane in the running Waypane desktop app.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"direction": {"type": "string", "enum": ["right", "down"]}},
+            "required": ["direction"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "waypane_edit_remote_file",
+        "description": "Open a remote UTF-8 text file in Waypane's visible editor. Saving remains under desktop-user control.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "path": {"type": "string", "minLength": 1}},
+            "required": ["id", "path"],
+            "additionalProperties": False,
+        },
+    },
+]
+
+
+def text_result(value: Any) -> dict[str, Any]:
+    return {"content": [{"type": "text", "text": json.dumps(value, indent=2)}]}
+
+
+def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "waypane_list_connections":
+        profiles = load_document()["connections"]
+        summaries = [
+            {
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "host": item.get("host"),
+                "port": item.get("port", 22),
+                "username": item.get("username", ""),
+                "group": item.get("group", ""),
+                "folder": item.get("group", ""),
+                "tags": item.get("tags", []),
+            }
+            for item in profiles
+        ]
+        return text_result(summaries)
+    if name == "waypane_get_connection":
+        return text_result(redacted(find_profile(arguments["id"])))
+    if name == "waypane_search_connections":
+        query = str(arguments["query"]).strip().casefold()
+        if not query:
+            raise ValueError("query is required")
+        matches = []
+        for item in load_document()["connections"]:
+            haystack = " ".join(
+                [
+                    str(item.get("name", "")),
+                    str(item.get("host", "")),
+                    str(item.get("username", "")),
+                    str(item.get("group", "")),
+                    " ".join(item.get("tags", [])),
+                ]
+            ).casefold()
+            if query in haystack:
+                matches.append(redacted(item))
+        return text_result(matches)
+    if name == "waypane_build_ssh_argv":
+        return text_result({"argv": ssh_argv(find_profile(arguments["id"]))})
+    if name == "waypane_upsert_connection":
+        if not str(arguments.get("name", "")).strip() or not str(arguments.get("host", "")).strip():
+            raise ValueError("name and host are required")
+        port = int(arguments.get("port", 22))
+        if port < 1 or port > 65535:
+            raise ValueError("port must be between 1 and 65535")
+        authentication = arguments.get("authentication", "key" if arguments.get("identityFile") else "agent")
+        if authentication not in {"agent", "key", "password"}:
+            raise ValueError("unsupported authentication method")
+        document = load_document()
+        connection_id = arguments.get("id") or str(uuid.uuid4())
+        profile = {
+            "id": connection_id,
+            "name": arguments["name"].strip(),
+            "group": arguments.get("folder", arguments.get("group", "")),
+            "host": arguments["host"].strip(),
+            "port": port,
+            "username": arguments.get("username", ""),
+            "sshConfigAlias": arguments.get("sshConfigAlias", ""),
+            "authentication": authentication,
+            "identityFile": arguments.get("identityFile", ""),
+            "secretId": "",
+            "jumpHosts": arguments.get("jumpHosts", []),
+            "tags": arguments.get("tags", []),
+            "localForwards": arguments.get("localForwards", []),
+            "remoteForwards": arguments.get("remoteForwards", []),
+            "dynamicForwards": arguments.get("dynamicForwards", []),
+            "remotePath": arguments.get("remotePath", "/"),
+            "hostKeyPolicy": arguments.get("hostKeyPolicy", "ask"),
+            "knownHostsFile": arguments.get("knownHostsFile", ""),
+            "agentForwarding": arguments.get("agentForwarding", False),
+            "compression": arguments.get("compression", False),
+            "legacyCompatibility": arguments.get("legacyCompatibility", False),
+        }
+        for index, item in enumerate(document["connections"]):
+            if item.get("id") == connection_id:
+                profile["secretId"] = item.get("secretId", "")
+                document["connections"][index] = profile
+                break
+        else:
+            document["connections"].append(profile)
+        save_document(document)
+        return text_result(redacted(profile))
+    if name == "waypane_delete_connection":
+        document = load_document()
+        before = len(document["connections"])
+        document["connections"] = [item for item in document["connections"] if item.get("id") != arguments["id"]]
+        if len(document["connections"]) == before:
+            raise ValueError(f"Unknown connection: {arguments['id']}")
+        save_document(document)
+        return text_result({"deleted": arguments["id"]})
+    if name == "waypane_runtime_status":
+        return text_result(live_request("status"))
+    if name == "waypane_connect_ssh":
+        find_profile(arguments["id"])
+        return text_result(live_request("connect", id=arguments["id"]))
+    if name == "waypane_browse_sftp":
+        find_profile(arguments["id"])
+        return text_result(live_request("browseFiles", id=arguments["id"]))
+    if name == "waypane_open_tunnels":
+        profile = find_profile(arguments["id"])
+        if not any(profile.get(key, []) for key in ("localForwards", "remoteForwards", "dynamicForwards")):
+            raise ValueError("connection has no configured forwards")
+        return text_result(live_request("openTunnels", id=arguments["id"]))
+    if name == "waypane_open_local_terminal":
+        return text_result(live_request("localTerminal"))
+    if name == "waypane_split_terminal":
+        direction = arguments.get("direction")
+        if direction not in {"right", "down"}:
+            raise ValueError("direction must be right or down")
+        return text_result(live_request("splitTerminal", direction=direction))
+    if name == "waypane_edit_remote_file":
+        find_profile(arguments["id"])
+        path = str(arguments.get("path", "")).strip()
+        if not path:
+            raise ValueError("path is required")
+        return text_result(live_request("editRemoteFile", id=arguments["id"], path=path))
+    raise ValueError(f"Unknown tool: {name}")
+
+
+def response(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+def error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
+    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+
+
+def handle(request: dict[str, Any]) -> dict[str, Any] | None:
+    request_id = request.get("id")
+    method = request.get("method")
+    if request_id is None:
+        return None
+    if method == "initialize":
+        return response(
+            request_id,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": SERVER,
+                "instructions": "Manage Waypane profiles. Secret material is never exposed. SSH argv output is not a shell command.",
+            },
+        )
+    if method == "ping":
+        return response(request_id, {})
+    if method == "tools/list":
+        return response(request_id, {"tools": TOOLS})
+    if method == "tools/call":
+        params = request.get("params", {})
+        try:
+            return response(request_id, call_tool(params.get("name", ""), params.get("arguments", {})))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            return response(request_id, {"content": [{"type": "text", "text": str(error)}], "isError": True})
+    return error_response(request_id, -32601, f"Method not found: {method}")
+
+
+def main() -> int:
+    for line in sys.stdin:
+        try:
+            request = json.loads(line)
+            reply = handle(request)
+            if reply is not None:
+                print(json.dumps(reply, separators=(",", ":")), flush=True)
+        except (json.JSONDecodeError, TypeError) as error:
+            print(json.dumps(error_response(None, -32700, f"Parse error: {error}"), separators=(",", ":")), flush=True)
+        except Exception as error:  # Keep the protocol process alive; details belong on stderr.
+            print(f"waypane-mcp: {error}", file=sys.stderr, flush=True)
+            print(json.dumps(error_response(None, -32603, "Internal error"), separators=(",", ":")), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Waypane
+GenericName=Remote Workspace
+Comment=Terminal, SSH, SFTP, and tunnels in one native workspace
+Exec=waypane
+Icon=waypane
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;ssh;sftp;remote;bastion;tunnel;
+StartupWMClass=waypane

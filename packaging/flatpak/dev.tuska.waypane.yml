@@ -1,0 +1,94 @@
+app-id: dev.tuska.waypane
+runtime: org.kde.Platform
+runtime-version: '6.10'
+sdk: org.kde.Sdk
+command: waypane
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --socket=ssh-auth
+  - --device=dri
+  - --talk-name=org.kde.kwalletd6
+
+cleanup:
+  - /include
+  - /lib/cmake
+  - /lib/pkgconfig
+  - /share/doc
+  - /share/man
+
+modules:
+  - name: private-openssl
+    buildsystem: simple
+    build-commands:
+      - ./Configure --prefix=/app/libexec/waypane/openssh/openssl --openssldir=/app/libexec/waypane/openssh/openssl/ssl no-shared no-module
+      - make -j${FLATPAK_BUILDER_N_JOBS} build_libs
+      - make install_dev
+      - install -Dm644 LICENSE.txt /app/libexec/waypane/openssh/OPENSSL-LICENSE
+    sources:
+      - type: archive
+        url: https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz
+        sha256: a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8
+
+  - name: private-openssh
+    buildsystem: simple
+    build-options:
+      env:
+        CPPFLAGS: -I/app/libexec/waypane/openssh/openssl/include
+        LDFLAGS: -L/app/libexec/waypane/openssh/openssl/lib64 -L/app/libexec/waypane/openssh/openssl/lib
+    build-commands:
+      - ./configure --prefix=/app/libexec/waypane/openssh --sysconfdir=/app/libexec/waypane/openssh/etc --with-ssl-dir=/app/libexec/waypane/openssh/openssl --without-openssl-header-check --without-pam
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - install -d /app/libexec/waypane/openssh/bin /app/libexec/waypane/openssh/etc /app/libexec/waypane/openssh/libexec
+      - install -m755 ssh scp sftp ssh-add ssh-agent ssh-keygen ssh-keyscan /app/libexec/waypane/openssh/bin/
+      - install -m755 ssh-pkcs11-helper ssh-sk-helper /app/libexec/waypane/openssh/libexec/
+      - install -m644 ssh_config.out /app/libexec/waypane/openssh/etc/ssh_config
+      - install -m644 LICENCE /app/libexec/waypane/openssh/OPENSSH-LICENCE
+      - rm -rf /app/libexec/waypane/openssh/openssl
+    sources:
+      - type: archive
+        url: https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.4p1.tar.gz
+        sha256: ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238
+
+  - name: kio-extras
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_DOC=OFF
+      - -DBUILD_KCMS=OFF
+      - -DBUILD_ACTIVITIES=OFF
+      - -DUSE_DBUS=OFF
+      - -DWITH_LIBPROXY=OFF
+    sources:
+      - type: git
+        url: https://invent.kde.org/network/kio-extras.git
+        commit: 420d9af07f74cc2fcd98aadb6003400d63d5ab16
+
+  - name: konsolepart
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_DOC=OFF
+    sources:
+      - type: git
+        url: https://invent.kde.org/utilities/konsole.git
+        commit: bf8e086500b36040bbbe5510edc755e2b8a48b84
+
+  - name: waypane
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_TESTING=OFF
+      - -DWAYPANE_BUILD_PRIVATE_OPENSSH=OFF
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .github
+          - .vscode
+          - build
+          - build-*
+          - konsole

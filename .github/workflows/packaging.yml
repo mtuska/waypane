@@ -1,0 +1,75 @@
+name: Packages
+
+on:
+  workflow_call:
+    secrets:
+      FLATPAK_GPG_PRIVATE_KEY:
+        required: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rpm:
+    name: RPM / Fedora ${{ matrix.fedora }}
+    runs-on: ubuntu-latest
+    container: fedora:${{ matrix.fedora }}
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ['43', '44']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install RPM toolchain and dependencies
+        run: |
+          dnf install -y dnf-plugins-core rpm-build curl git
+          dnf builddep -y packaging/rpm/waypane.spec
+      - name: Build source and binary RPMs
+        run: |
+          ./tools/make-srpm "$GITHUB_WORKSPACE/dist"
+          rpmbuild --rebuild dist/srpms/*.src.rpm --define "_rpmdir $GITHUB_WORKSPACE/dist/rpms"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rpm-fedora-${{ matrix.fedora }}
+          path: |
+            dist/srpms/*.src.rpm
+            dist/rpms/**/*.rpm
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak / KDE 6.10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Flatpak builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
+      - name: Build Flatpak
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          signing=()
+          if [[ -n "$FLATPAK_GPG_KEY_ID" ]]; then
+            printf '%s' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+            signing+=(--gpg-sign="$FLATPAK_GPG_KEY_ID")
+          fi
+          flatpak-builder --force-clean --repo=flatpak-repo "${signing[@]}" \
+            flatpak-build packaging/flatpak/dev.tuska.waypane.yml
+      - name: Create single-file bundle
+        run: flatpak build-bundle flatpak-repo waypane.flatpak dev.tuska.waypane
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flatpak
+          path: waypane.flatpak
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flatpak-repository
+          path: flatpak-repo
+          include-hidden-files: true
+          if-no-files-found: error

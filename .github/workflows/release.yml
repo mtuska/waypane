@@ -1,0 +1,132 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    uses: ./.github/workflows/packaging.yml
+    secrets: inherit
+
+  publish:
+    needs: packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Verify tagged version
+        run: ./tools/check-version "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: rpm-fedora-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: flatpak
+          path: dist
+      - name: Add source archive and checksums
+        run: |
+          ./tools/make-source-archive "$GITHUB_WORKSPACE/dist"
+          find dist -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/**
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes
+          find dist -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME" --clobber
+
+  flatpak-repository:
+    needs: [packages, publish]
+    if: ${{ vars.FLATPAK_REPO_URL != '' && vars.FLATPAK_GPG_KEY_ID != '' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: flatpak-repository
+          path: pages/repo
+      - name: Sign and describe the Waypane repository
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak
+          printf '%s' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+          flatpak build-update-repo pages/repo \
+            --gpg-sign="$FLATPAK_GPG_KEY_ID" --generate-static-deltas
+          gpg --batch --export "$FLATPAK_GPG_KEY_ID" > pages/waypane.gpg
+          waypane_gpg_key=$(base64 --wrap=0 pages/waypane.gpg)
+          cat > pages/waypane.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Waypane
+          Url=${FLATPAK_REPO_URL}
+          Homepage=https://waypane.tuska.dev
+          Comment=Official Waypane Flatpak repository
+          Description=Signed releases of the Waypane remote workspace
+          GPGKey=${waypane_gpg_key}
+          EOF
+          cat > pages/waypane.flatpakref <<EOF
+          [Flatpak Ref]
+          Name=dev.tuska.waypane
+          Branch=master
+          Title=Waypane
+          Url=${FLATPAK_REPO_URL}
+          IsRuntime=false
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          GPGKey=${waypane_gpg_key}
+          EOF
+          touch pages/.nojekyll
+          printf '%s\n' '<!doctype html><title>Waypane</title><h1>Waypane</h1><p><a href="waypane.flatpakref">Install Waypane</a></p>' > pages/index.html
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: pages
+      - name: Deploy signed Flatpak repository
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
+  copr:
+    needs: [packages, publish]
+    if: ${{ vars.COPR_PROJECT != '' }}
+    runs-on: ubuntu-latest
+    container: fedora:44
+    environment: release
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: rpm-fedora-*
+          path: dist
+          merge-multiple: true
+      - name: Submit SRPM to COPR
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+          COPR_PROJECT: ${{ vars.COPR_PROJECT }}
+        run: |
+          dnf install -y copr-cli findutils
+          install -d -m 0700 "$HOME/.config"
+          printf '%s' "$COPR_CONFIG" > "$HOME/.config/copr"
+          chmod 0600 "$HOME/.config/copr"
+          find dist -name '*.src.rpm' -print -quit | xargs copr-cli build "$COPR_PROJECT"

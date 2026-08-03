@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.tuska.waypane</id>
+  <name>Waypane</name>
+  <summary>A native workspace for shells and remote systems</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="dev.tuska">
+    <name>Waypane Contributors</name>
+  </developer>
+  <description>
+    <p>Waypane brings terminal sessions, SSH connections, SFTP navigation, and tunnels together in a local-first Linux workspace.</p>
+  </description>
+  <launchable type="desktop-id">dev.tuska.waypane.desktop</launchable>
+  <url type="homepage">https://waypane.tuska.dev</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" type="development" date="2026-08-02">
+      <description>
+        <p>Initial development release of the Waypane remote workspace.</p>
+      </description>
+    </release>
+  </releases>
+  <provides>
+    <binary>waypane</binary>
+  </provides>
+  <categories>
+    <category>System</category>
+    <category>TerminalEmulator</category>
+    <category>Network</category>
+  </categories>
+</component>

@@ -1,0 +1,14 @@
+/build/
+/build-*/
+__pycache__/
+*.pyc
+.cache/
+/dist/
+/.flatpak-builder/
+/.vscode/
+/flatpak-build/
+/flatpak-repo/
+/*.flatpak
+
+# The upstream Konsole checkout is reference material, not part of Waypane.
+/konsole/

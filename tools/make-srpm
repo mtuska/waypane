@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+if [[ $# -ne 1 || "$1" != /* ]]; then
+    echo "usage: $0 /absolute/output/directory" >&2
+    exit 2
+fi
+
+waypane_root=$(cd "$(dirname "$0")/.." && pwd)
+waypane_output=$1
+install -d "$waypane_output/sources" "$waypane_output/srpms"
+"$waypane_root/tools/make-source-archive" "$waypane_output/sources"
+
+curl -fL --retry 3 \
+    -o "$waypane_output/sources/openssh-10.4p1.tar.gz" \
+    https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.4p1.tar.gz
+curl -fL --retry 3 \
+    -o "$waypane_output/sources/openssl-3.5.7.tar.gz" \
+    https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz
+printf '%s  %s\n' \
+    ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238 "$waypane_output/sources/openssh-10.4p1.tar.gz" \
+    a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8 "$waypane_output/sources/openssl-3.5.7.tar.gz" \
+    | sha256sum --check --strict
+
+rpmbuild -bs "$waypane_root/packaging/rpm/waypane.spec" \
+    --define "_sourcedir $waypane_output/sources" \
+    --define "_srcrpmdir $waypane_output/srpms"

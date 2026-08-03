@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+OPENSSH_VERSION=10.4p1
+OPENSSH_SHA256=ef6026dd2aea8d56059638d5d3262902c892ceba9f88395835e0d06d3fb63238
+OPENSSL_VERSION=3.5.7
+OPENSSL_SHA256=a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8
+
+if [[ $# -ne 1 || "$1" != /* ]]; then
+    echo "usage: $0 /absolute/output/prefix" >&2
+    exit 2
+fi
+
+waypane_prefix=$1
+case "$waypane_prefix" in
+    /|/usr|/usr/local|/opt|/home|/tmp)
+        echo "refusing unsafe output prefix: $waypane_prefix" >&2
+        exit 2
+        ;;
+esac
+waypane_work=$(mktemp -d -t waypane-openssh-build.XXXXXX)
+trap 'find "$waypane_work" -depth -delete 2>/dev/null || true' EXIT
+
+if [[ -n "${WAYPANE_OPENSSH_ARCHIVE:-}" ]]; then
+    install -m 0644 "$WAYPANE_OPENSSH_ARCHIVE" "$waypane_work/openssh.tar.gz"
+else
+    curl -fL --retry 3 -o "$waypane_work/openssh.tar.gz" \
+        "https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-${OPENSSH_VERSION}.tar.gz"
+fi
+if [[ -n "${WAYPANE_OPENSSL_ARCHIVE:-}" ]]; then
+    install -m 0644 "$WAYPANE_OPENSSL_ARCHIVE" "$waypane_work/openssl.tar.gz"
+else
+    curl -fL --retry 3 -o "$waypane_work/openssl.tar.gz" \
+        "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz"
+fi
+
+printf '%s  %s\n' "$OPENSSH_SHA256" "$waypane_work/openssh.tar.gz" | sha256sum --check --strict
+printf '%s  %s\n' "$OPENSSL_SHA256" "$waypane_work/openssl.tar.gz" | sha256sum --check --strict
+
+tar -xf "$waypane_work/openssl.tar.gz" -C "$waypane_work"
+tar -xf "$waypane_work/openssh.tar.gz" -C "$waypane_work"
+
+pushd "$waypane_work/openssl-${OPENSSL_VERSION}" >/dev/null
+./Configure --prefix="$waypane_prefix/openssl" --openssldir="$waypane_prefix/openssl/ssl" no-shared no-module
+make -j"$(nproc)" build_libs
+make install_dev
+install -m 0644 LICENSE.txt "$waypane_prefix/OPENSSL-LICENSE"
+popd >/dev/null
+
+waypane_ssl_lib="$waypane_prefix/openssl/lib64"
+if [[ ! -d "$waypane_ssl_lib" ]]; then
+    waypane_ssl_lib="$waypane_prefix/openssl/lib"
+fi
+
+pushd "$waypane_work/openssh-${OPENSSH_VERSION}" >/dev/null
+CPPFLAGS="-I$waypane_prefix/openssl/include" \
+LDFLAGS="-L$waypane_ssl_lib" \
+PKG_CONFIG_PATH="$waypane_ssl_lib/pkgconfig" \
+./configure \
+    --prefix="$waypane_prefix" \
+    --sysconfdir="$waypane_prefix/etc" \
+    --with-ssl-dir="$waypane_prefix/openssl" \
+    --without-openssl-header-check \
+    --without-pam
+make -j"$(nproc)"
+install -d "$waypane_prefix/bin" "$waypane_prefix/etc" "$waypane_prefix/libexec"
+install -s -m 0755 ssh scp sftp ssh-add ssh-agent ssh-keygen ssh-keyscan "$waypane_prefix/bin/"
+install -s -m 0755 ssh-pkcs11-helper ssh-sk-helper "$waypane_prefix/libexec/"
+install -m 0644 ssh_config.out "$waypane_prefix/etc/ssh_config"
+install -m 0644 LICENCE "$waypane_prefix/OPENSSH-LICENCE"
+popd >/dev/null
+
+# libcrypto is linked statically into the client. Headers and archives are build
+# inputs, not runtime files, so keep them out of the shipped bundle.
+find "$waypane_prefix/openssl" -depth -delete
+
+"$waypane_prefix/bin/ssh" -V
+echo "Waypane private OpenSSH installed at $waypane_prefix"

@@ -1,0 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#define WAYPANE_VERSION "@PROJECT_VERSION@"
+#define WAYPANE_PROFILE_SCHEMA_VERSION 1
+#define WAYPANE_MCP_PROTOCOL_VERSION 1

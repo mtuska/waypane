@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate release metadata and scripts
+        run: |
+          ./tools/check-version
+          python3 -m compileall -q tools/waypane-mcp tools/check-version tests
+          bash -n tools/build-private-openssh tools/make-source-archive tools/make-srpm
+
+  fedora:
+    name: Fedora ${{ matrix.fedora }}
+    runs-on: ubuntu-latest
+    container: fedora:${{ matrix.fedora }}
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ['43', '44']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install build dependencies
+        run: >-
+          dnf install -y
+          appstream cmake desktop-file-utils extra-cmake-modules gcc-c++ git
+          kf6-kio-devel kf6-kparts-devel kf6-kwallet-devel
+          konsole-part ninja-build python3 qt6-qtbase-devel
+      - name: Configure
+        run: cmake -S . -B build -GNinja -DWAYPANE_BUILD_PRIVATE_OPENSSH=OFF
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Validate desktop metadata
+        run: |
+          desktop-file-validate packaging/dev.tuska.waypane.desktop
+          appstreamcli validate --no-net packaging/dev.tuska.waypane.metainfo.xml
