@@ -22,6 +22,14 @@ set_tests_properties(waypane_session_logger_tests PROPERTIES
     ENVIRONMENT "WAYPANE_SESSION_LOGGER=$<TARGET_FILE:waypane-session-logger>"
 )
 
+add_test(
+    NAME waypane_ssh_runner_tests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_ssh_runner.py
+)
+set_tests_properties(waypane_ssh_runner_tests PROPERTIES
+    ENVIRONMENT "WAYPANE_SSH_RUNNER=$<TARGET_FILE:waypane-ssh-runner>"
+)
+
 qt_add_executable(waypane_ui_lifecycle_tests
     ui_lifecycle_tests.cpp
     ${CMAKE_SOURCE_DIR}/src/app/connectionlistmodel.cpp

@@ -58,10 +58,12 @@ an explicit setting; the SFTP workspace is never reopened implicitly.
 
 KonsolePart loads Waypane-managed Day and Night profiles from the user's standard
 Konsole data location. These profiles change only terminals embedded in Waypane;
-they do not replace the user's Konsole defaults. When auditing is enabled, SSH is
-started through `waypane-session-logger`, which relays a nested PTY byte-for-byte
-and writes output to an owner-only transcript. Secrets remain outside arguments
-and password input remains protected by the child PTY's echo setting.
+they do not replace the user's Konsole defaults. SSH sessions run through
+`waypane-ssh-runner`; a failed OpenSSH process leaves its exact diagnostic and a
+profile-aware recovery hint visible until the user acknowledges it. When auditing
+is enabled, the runner starts `waypane-session-logger`, which relays a nested PTY
+byte-for-byte and writes output to an owner-only transcript. Secrets remain outside
+arguments and password input remains protected by the child PTY's echo setting.
 
 ## Data
 

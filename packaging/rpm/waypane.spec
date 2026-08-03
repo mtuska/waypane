@@ -1,5 +1,5 @@
 Name:           waypane
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        Native workspace for SSH, SFTP, terminals, and tunnels
 
@@ -84,12 +84,16 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/dev.tuska.wayp
 %{_bindir}/waypane-mcp
 %{_libexecdir}/waypane-ssh-helper
 %{_libexecdir}/waypane-session-logger
+%{_libexecdir}/waypane-ssh-runner
 %{_libexecdir}/waypane/openssh/
 %{_datadir}/applications/dev.tuska.waypane.desktop
 %{_datadir}/icons/hicolor/*/apps/dev.tuska.waypane.png
 %{_metainfodir}/dev.tuska.waypane.metainfo.xml
 
 %changelog
+* Mon Aug 03 2026 Waypane Contributors <hello@tuska.dev> - 0.1.2-1
+- Keep failed SSH diagnostics visible with profile-aware recovery guidance
+
 * Sun Aug 02 2026 Waypane Contributors <hello@tuska.dev> - 0.1.1-1
 - Fix Flatpak local terminal startup and desktop icon export
 

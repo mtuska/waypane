@@ -5,6 +5,15 @@ All notable changes to Waypane will be documented here. The project follows
 
 ## Unreleased
 
+## 0.1.2 - 2026-08-03
+
+### Fixed
+
+- Preserve OpenSSH diagnostics when a connection fails instead of immediately
+  closing the terminal tab.
+- Suggest enabling legacy server compatibility when OpenSSH reports that no
+  mutually supported algorithm could be found.
+
 ## 0.1.1 - 2026-08-02
 
 ### Fixed

@@ -1001,6 +1001,11 @@ bool WaypaneWindow::openSshSession(const Waypane::ConnectionProfile &profile, QS
         QMessageBox::warning(this, tr("SSH helper missing"), tr("Waypane's credential helper is not installed, so the saved secret cannot be used."));
         return false;
     }
+    const QString sessionRunner = helperExecutable(QStringLiteral("waypane-ssh-runner"));
+    if (sessionRunner.isEmpty()) {
+        QMessageBox::warning(this, tr("SSH session unavailable"), tr("Waypane's SSH session supervisor is not installed."));
+        return false;
+    }
     const bool loggingEnabled = !tunnelsOnly && QSettings().value(QStringLiteral("logging/enabled"), false).toBool();
     const QString logPath = loggingEnabled ? sessionLogPath(profile) : QString();
     const QString logger = loggingEnabled ? helperExecutable(QStringLiteral("waypane-session-logger")) : QString();
@@ -1031,11 +1036,19 @@ bool WaypaneWindow::openSshSession(const Waypane::ConnectionProfile &profile, QS
     if (loggingEnabled) {
         QStringList loggerArguments{QStringLiteral("waypane-session-logger"), QStringLiteral("--log"), logPath, QStringLiteral("--host"), profile.host, QStringLiteral("--"), program};
         loggerArguments.append(programArguments);
-        session.interface->startProgram(logger, loggerArguments);
+        program = logger;
+        programArguments = loggerArguments;
         m_workspaceEndpoint->setToolTip(tr("Session log: %1").arg(logPath));
-    } else {
-        session.interface->startProgram(program, programArguments);
     }
+    QStringList runnerArguments{QStringLiteral("waypane-ssh-runner"),
+                                QStringLiteral("--profile"),
+                                profile.name,
+                                QStringLiteral("--legacy-enabled"),
+                                profile.legacyCompatibility ? QStringLiteral("true") : QStringLiteral("false"),
+                                QStringLiteral("--"),
+                                program};
+    runnerArguments.append(programArguments);
+    session.interface->startProgram(sessionRunner, runnerArguments);
     return true;
 }
 

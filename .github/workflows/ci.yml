@@ -52,6 +52,7 @@ jobs:
           DESTDIR="$PWD/build/install-root" cmake --install build
           test -f "$PWD/build/install-root/usr/local/share/icons/hicolor/256x256/apps/dev.tuska.waypane.png"
           test "$(sed -n 's/^Icon=//p' "$PWD/build/install-root/usr/local/share/applications/dev.tuska.waypane.desktop")" = dev.tuska.waypane
+          test -x "$PWD/build/install-root/usr/local/libexec/waypane-ssh-runner"
       - name: Validate desktop metadata
         run: |
           desktop-file-validate packaging/dev.tuska.waypane.desktop

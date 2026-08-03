@@ -46,6 +46,8 @@ qt_add_executable(waypane-ssh-helper
 add_executable(waypane-session-logger app/sessionlogger.cpp)
 target_link_libraries(waypane-session-logger PRIVATE util)
 
+add_executable(waypane-ssh-runner app/sshrunner.cpp)
+
 qt_add_resources(waypane waypane_assets
     PREFIX "/"
     BASE "${CMAKE_SOURCE_DIR}"
@@ -70,6 +72,7 @@ target_link_libraries(waypane-ssh-helper PRIVATE Qt6::Widgets KF6::Wallet)
 install(TARGETS waypane RUNTIME DESTINATION bin)
 install(TARGETS waypane-ssh-helper RUNTIME DESTINATION libexec)
 install(TARGETS waypane-session-logger RUNTIME DESTINATION libexec)
+install(TARGETS waypane-ssh-runner RUNTIME DESTINATION libexec)
 
 option(WAYPANE_BUILD_PRIVATE_OPENSSH "Build Waypane's isolated OpenSSH runtime" ON)
 set(WAYPANE_PRIVATE_OPENSSH_ROOT "" CACHE PATH "Existing path produced by tools/build-private-openssh")
