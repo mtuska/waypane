@@ -1,0 +1,73 @@
+name: Deploy Flatpak repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Release workflow run containing the flatpak-repository artifact
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  pages: write
+
+jobs:
+  deploy:
+    if: ${{ vars.FLATPAK_REPO_URL != '' && vars.FLATPAK_GPG_KEY_ID != '' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download repository from release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          mkdir -p pages/repo
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name flatpak-repository --dir pages/repo
+      - name: Sign and describe the Waypane repository
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak
+          printf '%s' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --import
+          flatpak build-update-repo pages/repo \
+            --gpg-sign="$FLATPAK_GPG_KEY_ID" --generate-static-deltas
+          gpg --batch --export "$FLATPAK_GPG_KEY_ID" > pages/waypane.gpg
+          waypane_gpg_key=$(base64 --wrap=0 pages/waypane.gpg)
+          cat > pages/waypane.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Waypane
+          Url=${FLATPAK_REPO_URL}
+          Homepage=https://waypane.tuska.dev
+          Comment=Official Waypane Flatpak repository
+          Description=Signed releases of the Waypane remote workspace
+          GPGKey=${waypane_gpg_key}
+          EOF
+          cat > pages/waypane.flatpakref <<EOF
+          [Flatpak Ref]
+          Name=dev.tuska.waypane
+          Branch=master
+          Title=Waypane
+          Url=${FLATPAK_REPO_URL}
+          IsRuntime=false
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          GPGKey=${waypane_gpg_key}
+          EOF
+          touch pages/.nojekyll
+          printf '%s\n' '<!doctype html><title>Waypane</title><h1>Waypane</h1><p><a href="waypane.flatpakref">Install Waypane</a></p>' > pages/index.html
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: pages
+      - name: Deploy signed Flatpak repository
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
