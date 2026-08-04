@@ -5,6 +5,13 @@ All notable changes to Waypane will be documented here. The project follows
 
 ## Unreleased
 
+## 0.1.5 - 2026-08-04
+
+### Fixed
+
+- Restore the Ctrl+Insert copy and Shift+Insert paste shortcuts in embedded
+  terminals, which KonsolePart otherwise routes into the terminal session.
+
 ## 0.1.4 - 2026-08-03
 
 ### Added

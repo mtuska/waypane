@@ -8,16 +8,21 @@
 #include <kde_terminal_interface.h>
 
 #include <QCoreApplication>
+#include <QAction>
 #include <QApplication>
 #include <QClipboard>
 #include <QComboBox>
 #include <QEvent>
 #include <QJsonObject>
+#include <QKeyEvent>
+#include <QKeySequence>
 #include <QLabel>
 #include <QMetaObject>
 #include <QSettings>
 #include <QPushButton>
 #include <QTest>
+
+#include <utility>
 
 class UiLifecycleTests : public QObject
 {
@@ -30,6 +35,7 @@ private slots:
     void repeatedlyClosesLiveTerminalTabs();
     void appliesManagedTerminalColorProfile();
     void controlWClosesCurrentTab();
+    void insertClipboardShortcutsStayAvailable();
     void terminalExitClosesOwningTab();
     void copiesFlatpakMcpSetupCommands();
     void settingsShowApplicationVersion();
@@ -116,6 +122,55 @@ void UiLifecycleTests::controlWClosesCurrentTab()
 
     QTest::keyClick(&window, Qt::Key_W, Qt::ControlModifier);
     QTRY_COMPARE_WITH_TIMEOUT(window.runtimeStatus().value(QStringLiteral("terminalTabCount")).toInt(), 0, 2000);
+}
+
+void UiLifecycleTests::insertClipboardShortcutsStayAvailable()
+{
+    WaypaneWindow window;
+    window.show();
+    window.openLocalTerminal();
+    QTest::qWait(150);
+
+    const QList<KParts::ReadOnlyPart *> parts = window.findChildren<KParts::ReadOnlyPart *>();
+    QVERIFY(!parts.isEmpty());
+    QWidget *terminalWidget = parts.first()->widget();
+    QVERIFY(terminalWidget);
+
+    QWidget *display = nullptr;
+    QList<QWidget *> candidates = terminalWidget->findChildren<QWidget *>();
+    candidates.prepend(terminalWidget);
+    for (QWidget *candidate : std::as_const(candidates)) {
+        if (QByteArray(candidate->metaObject()->className()).contains("TerminalDisplay")) {
+            display = candidate;
+            break;
+        }
+    }
+    QVERIFY(display);
+
+    // KonsolePart associates its session actions with the display, so the
+    // Insert-based clipboard shortcuts must be registered there.
+    bool copyShortcutAvailable = false;
+    bool pasteShortcutAvailable = false;
+    const QList<QAction *> actions = display->actions();
+    for (const QAction *action : actions) {
+        copyShortcutAvailable = copyShortcutAvailable || action->shortcuts().contains(QKeySequence(Qt::CTRL | Qt::Key_Insert));
+        pasteShortcutAvailable = pasteShortcutAvailable || action->shortcuts().contains(QKeySequence(Qt::SHIFT | Qt::Key_Insert));
+    }
+    QVERIFY(copyShortcutAvailable);
+    QVERIFY(pasteShortcutAvailable);
+
+    // The part must not swallow the combinations before Qt's shortcut system
+    // can trigger those actions; an accepted ShortcutOverride event means the
+    // key would be sent to the terminal instead.
+    QKeyEvent copyOverride(QEvent::ShortcutOverride, Qt::Key_Insert, Qt::ControlModifier);
+    copyOverride.ignore();
+    QApplication::sendEvent(display, &copyOverride);
+    QVERIFY(!copyOverride.isAccepted());
+
+    QKeyEvent pasteOverride(QEvent::ShortcutOverride, Qt::Key_Insert, Qt::ShiftModifier);
+    pasteOverride.ignore();
+    QApplication::sendEvent(display, &pasteOverride);
+    QVERIFY(!pasteOverride.isAccepted());
 }
 
 void UiLifecycleTests::terminalExitClosesOwningTab()

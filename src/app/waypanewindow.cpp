@@ -35,6 +35,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QMenu>
@@ -948,6 +949,12 @@ WaypaneWindow::TerminalSession WaypaneWindow::createTerminal(const QString &titl
         QMessageBox::critical(this, tr("Terminal unavailable"), tr("The installed KonsolePart does not provide TerminalInterface."));
         return {};
     }
+    // KonsolePart routes almost every single-modifier key combination into the
+    // terminal instead of Qt's shortcut system, which silently disables the
+    // part's own Ctrl+Insert copy shortcut. Its overrideShortcut signal lets
+    // the host reclaim specific keys; the part ships no public header, so the
+    // connection must use the string-based syntax.
+    connect(result.plugin, SIGNAL(overrideShortcut(QKeyEvent *, bool &)), this, SLOT(handleTerminalShortcutOverride(QKeyEvent *, bool &)));
     QWidget *terminalWidget = result.plugin->widget();
     if (!workspace) {
         workspace = new QSplitter(Qt::Horizontal, m_terminalTabs);
@@ -986,6 +993,18 @@ WaypaneWindow::TerminalSession WaypaneWindow::createTerminal(const QString &titl
         });
     });
     return session;
+}
+
+void WaypaneWindow::handleTerminalShortcutOverride(QKeyEvent *event, bool &override)
+{
+    // Keep Insert-based clipboard shortcuts working like in Konsole proper:
+    // Ctrl+Insert copies and Shift+Insert pastes. The part already exempts
+    // Shift+Insert before emitting this signal, so only the Ctrl combinations
+    // need to be released back to Qt's shortcut system, where the part's own
+    // copy action (Ctrl+Insert is its alternate shortcut) handles them.
+    if (event->key() == Qt::Key_Insert && (event->modifiers() & ~(Qt::ControlModifier | Qt::ShiftModifier)) == 0) {
+        override = false;
+    }
 }
 
 bool WaypaneWindow::openSshSession(const Waypane::ConnectionProfile &profile, QSplitter *workspace, bool tunnelsOnly)

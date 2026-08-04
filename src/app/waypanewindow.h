@@ -16,6 +16,7 @@ class QPushButton;
 class QCloseEvent;
 class QPlainTextEdit;
 class QEvent;
+class QKeyEvent;
 class QResizeEvent;
 class QStackedWidget;
 class QSplitter;
@@ -72,6 +73,7 @@ private slots:
     void configurePortForwards();
     void newLocalTerminal();
     void closeTerminal(int index);
+    void handleTerminalShortcutOverride(QKeyEvent *event, bool &override);
 
 private:
     enum class ThemeMode {

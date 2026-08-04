@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-SERVER = {"name": "waypane", "version": "0.1.4"}
+SERVER = {"name": "waypane", "version": "0.1.5"}
 PROTOCOL_VERSION = "2025-11-25"
 
 

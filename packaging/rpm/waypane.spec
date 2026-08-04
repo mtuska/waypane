@@ -1,5 +1,5 @@
 Name:           waypane
-Version:        0.1.4
+Version:        0.1.5
 Release:        1%{?dist}
 Summary:        Native workspace for SSH, SFTP, terminals, and tunnels
 
@@ -91,6 +91,9 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/dev.tuska.wayp
 %{_metainfodir}/dev.tuska.waypane.metainfo.xml
 
 %changelog
+* Tue Aug 04 2026 Waypane Contributors <hello@tuska.dev> - 0.1.5-1
+- Restore Ctrl+Insert copy and Shift+Insert paste in embedded terminals
+
 * Mon Aug 03 2026 Waypane Contributors <hello@tuska.dev> - 0.1.4-1
 - Allow saved connections to be selected as profile-aware SSH jump hosts
 
